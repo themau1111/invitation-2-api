@@ -3,6 +3,7 @@ const { requireAdmin } = require("../../../../lib/admin");
 const { getEnvironment } = require("../../../../lib/env");
 const { methodNotAllowed, requestId, sendError, setCors } = require("../../../../lib/http");
 const { parseJsonBody, guestCreate } = require("../../../../lib/validation");
+const { createAccessCode, hashAccessCode } = require("../../../../lib/access-codes");
 
 function numberParameter(value, fallback, max) {
   const parsed = Number(value);
@@ -11,7 +12,8 @@ function numberParameter(value, fallback, max) {
 
 async function handler(req, res) {
   const id = requestId(req);
-  try { getEnvironment(); } catch { return sendError(res, 503, "service_unavailable", "Servicio no disponible.", id); }
+  let env;
+  try { env = getEnvironment(); } catch { return sendError(res, 503, "service_unavailable", "Servicio no disponible.", id); }
   if (!setCors(req, res, ["GET", "POST", "OPTIONS"])) return sendError(res, 403, "origin_not_allowed", "Origen no permitido.", id);
   if (req.method === "OPTIONS") return res.status(204).end();
   if (!["GET", "POST"].includes(req.method)) return methodNotAllowed(res, ["GET", "POST", "OPTIONS"], id);
@@ -21,11 +23,18 @@ async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const input = guestCreate.parse(parseJsonBody(req.body));
-      const { data: guest, error } = await admin.supabase.from("guests").insert({ full_name: input.fullName, email: input.email, phone: input.phone, party_size: input.partySize }).select("id, full_name, email, phone, party_size, rsvp_status").single();
-      if (error) throw error;
+      let guest;
+      let accessCode;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        accessCode = createAccessCode();
+        const { data, error } = await admin.supabase.from("guests").insert({ full_name: input.fullName, email: input.email, phone: input.phone, party_size: input.partySize, access_code_hash: hashAccessCode(accessCode, env.rsvpCodeSecret) }).select("id, full_name, email, phone, party_size, rsvp_status").single();
+        if (!error) { guest = data; break; }
+        if (error.code !== "23505") throw error;
+      }
+      if (!guest) throw new Error("Unable to generate a unique RSVP code");
       console.info(JSON.stringify({ event: "admin_guest_created", requestId: id, adminId: admin.id, guestId: guest.id }));
       res.setHeader("X-Request-Id", id);
-      return res.status(201).json({ guest: serializeGuest(guest) });
+      return res.status(201).json({ guest: serializeGuest(guest), accessCode });
     } catch (error) {
       if (error instanceof ZodError || error instanceof SyntaxError) return sendError(res, 422, "validation_error", "Revisa los datos enviados.", id);
       console.error(JSON.stringify({ event: "admin_guest_create_failed", requestId: id, adminId: admin.id }));

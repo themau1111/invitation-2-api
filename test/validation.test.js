@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { rsvpSubmission } = require("../lib/validation");
+const { createAccessCode, hashAccessCode } = require("../lib/access-codes");
 const rsvpHandler = require("../api/v1/rsvp/[accessToken]");
 
 function response() {
@@ -24,8 +25,16 @@ test("RSVP endpoint does not query Supabase for an invalid opaque token", async 
   process.env.APP_ORIGIN = "https://invitation.example.com";
   process.env.SUPABASE_URL = "https://project.supabase.co";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "server-only";
+  process.env.RSVP_CODE_SECRET = "test-only-code-secret";
   const res = response();
   await rsvpHandler({ method: "GET", query: { accessToken: "not-a-uuid" }, headers: { origin: process.env.APP_ORIGIN } }, res);
   assert.equal(res.result.statusCode, 404);
   assert.equal(res.result.body.error.code, "not_found");
+});
+
+test("RSVP access codes are four digits and only their keyed hash is stable", () => {
+  const code = createAccessCode();
+  assert.match(code, /^\d{4}$/);
+  assert.equal(hashAccessCode("0042", "test-secret"), hashAccessCode("0042", "test-secret"));
+  assert.notEqual(hashAccessCode("0042", "test-secret"), hashAccessCode("0043", "test-secret"));
 });
