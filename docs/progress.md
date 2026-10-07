@@ -1,5 +1,10 @@
 # Progress log
 
+## 2026-10-07
+
+- Added an administrator-only endpoint to reissue a lost four-digit RSVP code without ever recovering a stored plain-text code. The caller receives the replacement once and the previous code is invalidated.
+- Added administrator-only seating endpoints for empty plans, positioned tables, and seat assignments. The corresponding Supabase migration lives in the frontend repository because it owns the dedicated project's migration history; tables are RLS-protected and service-role API only.
+
 ## 2026-09-08
 
 - Repository identified as empty API/backend for the second invitation.
